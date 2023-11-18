@@ -1,0 +1,111 @@
+import math
+import os,sys
+import numpy as np
+import h5py
+import uproot
+import awkward as ak
+import xarray as xr
+
+input_file_path = '/eos/home-p/pibutti/data_acts/acts_ttbar_200PU.root'
+trk_output_file_path = 'timesig_trk_output.h5'
+vtx_output_file_path= 'timesig_vtx_output.h5'
+chunk_size = 1000  # Adjust the chunk size as needed
+
+
+def processBatch(t,start,stop):
+    trk_t=t['track_t'].array(entry_start=start,entry_stop=stop)
+    trk_var_t=t['track_var_t'].array(entry_start=start,entry_stop=stop)
+    vtxt=t['recovertex_t'].array(entry_start=start,entry_stop=stop)
+    vtx_isHS=t['recovertex_isHS'].array(entry_start=start,entry_stop=stop)
+    #j_idx=t.arrays('jet_tracks_idx',entry_start=start,entry_stop=stop)    
+    #j_label=t.arrays('jet_label',entry_start=start,entry_stop=stop)
+    HS_times=[]
+    num_trk=0
+    for ev in range(len(vtxt)):
+        evvtxt=vtxt[ev]
+        evisHS=vtx_isHS[ev]
+        evtrk_t=trk_t[ev]
+        num_trk_ev=len(evtrk_t)
+        if(num_trk_ev>num_trk):
+            num_trk=num_trk_ev
+        for vtx in range(len(evvtxt)):
+            if(evisHS[vtx]==1):
+                HS_times.append(evvtxt[vtx])
+                break
+    nw_trk_t=[]
+    nw_trk_var_t=[]
+    max_tracks = ak.max(ak.num(trk_t))
+    for tarr,varr in zip(trk_t,trk_var_t):
+        #        print(tarr)
+        trk_pad=ak.pad_none(tarr,target=max_tracks,axis=0)
+        var_pad=ak.pad_none(varr,target=max_tracks,axis=0)
+        nw_trk_t.append(trk_pad)
+        nw_trk_var_t.append(var_pad)
+    nw_trk_t_no_none = ak.fill_none(nw_trk_t, -1)
+    nw_trk_var_t_no_none = ak.fill_none(nw_trk_var_t, -1)
+    trk_t_arr=np.array(nw_trk_t_no_none)
+    trk_var_t_arr=np.array(nw_trk_var_t_no_none)
+    HS_times_arr=np.array(HS_times)
+    print(HS_times_arr[0])
+    return trk_t_arr,trk_var_t_arr,HS_times_arr
+
+with uproot.open(input_file_path) as root_file:
+    tree = root_file['events']
+    total_entries = len(tree)
+    print("events: ",total_entries)
+    with h5py.File(trk_output_file_path, 'a') as trk_hdf_file:
+        group_trk = trk_hdf_file.create_group('processed_data_trk')
+        print("before loop")
+        #total_chunks = total_entries // chunk_size
+        total_chunks=math.floor(len(tree)/chunk_size)
+        start = 0
+        stop = chunk_size
+        for i in range(total_chunks):
+            print(f"Processing batch {i+1} of {total_chunks}")
+            trk_t, trk_var_t, HS_t = processBatch(tree, start, stop)
+            print("processed batch")
+            # Create datasets within the group and write the processed data
+            trkt_dataset = group_trk.create_dataset(f'track_t_chunk_{i}', data=trk_t)
+            trk_vardataset = group_trk.create_dataset(f'track_var_t_chunk_{i}', data=trk_var_t)
+            print("Batch: ", i)
+            
+            start = stop
+            stop = min(stop + chunk_size, total_entries)
+
+
+    with h5py.File(vtx_output_file_path, 'a') as vtx_hdf_file:
+        group_vtx = vtx_hdf_file.create_group('processed_data_vtx')
+        print("before loop")
+        #total_chunks = total_entries // chunk_size
+        total_chunks=math.floor(len(tree)/chunk_size)
+        start = 0
+        stop = chunk_size
+        for i in range(total_chunks):
+            print(f"Processing batch {i+1} of {total_chunks}")
+            trk_t, trk_var_t, HS_t = processBatch(tree, start, stop)
+            print("processed batch")
+            HSt_vardataset = group_vtx.create_dataset(f'HS_t_chunk_{i}', data=HS_t)
+            print("Batch: ", i)
+            
+            start = stop
+            stop = min(stop + chunk_size, total_entries)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
